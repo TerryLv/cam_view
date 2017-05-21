@@ -70,7 +70,8 @@ typedef struct {
     char devname[CAM_VIEW_DEV_NAME_MAX_LEN];
     int32_t width;
     int32_t height;
-    int32_t format;
+    int32_t formatIn;
+    int32_t formatOut;
     int32_t mmapgrab;
     float fps;
     char avifilename[CAM_VIEW_OUTPUT_FILENAME_MAX_LEN];
@@ -88,8 +89,10 @@ static int32_t cam_view_print_usage(int32_t argc, char *argv[])
     printf("dev <dev>\n"
            "  /dev/videoX       use videoX device\n");
     printf("-g   use read method for grab instead mmap\n");
-    printf("mode <YUYV|yuv|MJPG|jpg>\n"
-           "  choose video format (YUYV/yuv and MJPG/jpg are valid, MJPG is default)\n");
+    printf("infmt <YUYV|yuv|MJPG|jpg>\n"
+           "  choose input video format (YUYV/yuv and MJPG/jpg are valid, default value is MJPG)\n");
+    printf("outfmt <YUYV|yuv|MJPG|jpg>\n"
+           "  choose output video format (YUYV/yuv and MJPG/jpg are valid, default value is YUYV)\n");
     printf("framerate <fps>\n"
            "  use specified frame rate\n");
     printf("size <widthxheight>\n"
@@ -202,7 +205,7 @@ static int32_t cam_view_set_mmapgrab(int32_t argc, char *argv[])
     return 0;
 }
 
-static int32_t cam_view_set_mode(int32_t argc, char *argv[])
+static int32_t cam_view_set_input_format(int32_t argc, char *argv[])
 {
     const char *tmp = NULL;
     int32_t format = V4L2_PIX_FMT_MJPEG;
@@ -213,28 +216,28 @@ static int32_t cam_view_set_mode(int32_t argc, char *argv[])
 	}
 
     if (1 == argc) {
-        if (V4L2_PIX_FMT_YUYV == g_cam_view_cfg.format)
-            printf("current format is yuv/YUYV.\n");
-        else if (V4L2_PIX_FMT_MJPEG == g_cam_view_cfg.format)
-            printf("current format is jpg/MJPG.\n");
+        if (V4L2_PIX_FMT_YUYV == g_cam_view_cfg.formatIn)
+            printf("current input format is yuv/YUYV.\n");
+        else if (V4L2_PIX_FMT_MJPEG == g_cam_view_cfg.formatIn)
+            printf("current input format is jpg/MJPG.\n");
         else {
-            printf("unrecognized format: %d\n", g_cam_view_cfg.format);
+            printf("unrecognized format: %d\n", g_cam_view_cfg.formatIn);
             return 1;
         }
     } else {
 	    tmp = argv[1];
 
 	    if (strcasecmp(tmp, "yuv") == 0 || strcasecmp(tmp, "YUYV") == 0) {
-            printf("format is set to yuv/YUYV.\n");
+            printf("Input format is set to yuv/YUYV.\n");
 	        format = V4L2_PIX_FMT_YUYV;
         } else if (strcasecmp(tmp, "jpg") == 0 || strcasecmp(tmp, "MJPG") == 0) {
-            printf("format is set to jpg/MJPG.\n");
+            printf("Input format is set to jpg/MJPG.\n");
 		    format = V4L2_PIX_FMT_MJPEG;
         } else {
 		    printf("Unknown format specified. Aborting.\n");
 	        return (1);
 	    }
-        g_cam_view_cfg.format = format;
+        g_cam_view_cfg.formatIn = format;
     }
     return 0;
 }
@@ -271,6 +274,44 @@ static int32_t cam_view_set_size(int32_t argc, char *argv[])
 	}
 
     return 0;
+}
+
+static int32_t cam_view_set_output_format(int32_t argc, char *argv[])
+{
+    const char *tmp = NULL;
+    int32_t format = V4L2_PIX_FMT_YUYV;
+
+    if (argc > 2) {
+	    printf("too many arguments, aborting.\n");
+		return (1);
+	}
+
+    if (1 == argc) {
+        if (V4L2_PIX_FMT_YUYV == g_cam_view_cfg.formatOut)
+            printf("current output format is yuv/YUYV.\n");
+        else if (V4L2_PIX_FMT_MJPEG == g_cam_view_cfg.formatOut)
+            printf("current output format is jpg/MJPG.\n");
+        else {
+            printf("unrecognized format: %d\n", g_cam_view_cfg.formatOut);
+            return 1;
+        }
+    } else {
+	    tmp = argv[1];
+
+	    if (strcasecmp(tmp, "yuv") == 0 || strcasecmp(tmp, "YUYV") == 0) {
+            printf("Output format is set to yuv/YUYV.\n");
+	        format = V4L2_PIX_FMT_YUYV;
+        } else if (strcasecmp(tmp, "jpg") == 0 || strcasecmp(tmp, "MJPG") == 0) {
+            printf("Output format is set to jpg/MJPG.\n");
+		    format = V4L2_PIX_FMT_MJPEG;
+        } else {
+		    printf("Unknown format specified. Aborting.\n");
+	        return (1);
+	    }
+        g_cam_view_cfg.formatOut = format;
+    }
+    return 0;
+
 }
 
 static int32_t cam_view_set_frame_rate(int32_t argc, char *argv[])
@@ -323,7 +364,7 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
 
         interval = atoi(tmp);
         if (0 == interval) {
-            printf("invalid interval numbers\n"); 
+            printf("invalid interval value\n"); 
             return 1;
         }
     }
@@ -338,7 +379,7 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
              g_cam_view_cfg.width,
              g_cam_view_cfg.height,
              g_cam_view_cfg.fps,
-             g_cam_view_cfg.format,
+             g_cam_view_cfg.formatIn,
 			 g_cam_view_cfg.mmapgrab,
              g_cam_view_cfg.avifilename) < 0) {
         free(videoIn);
@@ -346,10 +387,17 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
 		return (1);
     }
 
+    initLut();
+
     printf("Capturing frames ... press 'q' or 'Q' to stop\n");
     gettimeofday(&ref_time, NULL);
     while (videoIn->signalquit) {
-        if ('q' == cam_view_getch() || 'Q' == cam_view_getch())
+        if (1 == argc)
+        {
+            /* Capture one frame, so quit after capture */
+            videoIn->signalquit = 0;
+        }
+        else if ('q' == cam_view_getch() || 'Q' == cam_view_getch())
         {
             videoIn->signalquit = 0;
         }
@@ -363,7 +411,7 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
         gettimeofday(&end_time, NULL);
         time_dur = (end_time.tv_sec - ref_time.tv_sec) * 1000000 + (end_time.tv_usec - ref_time.tv_usec);
         if (time_dur > interval * 1000) {
-            switch (videoIn->formatIn) {
+            switch (g_cam_view_cfg.formatOut) {
             case V4L2_PIX_FMT_YUYV:
                 utils_get_picture_yv2(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->framebuffer,
                         videoIn->width, videoIn->height);
@@ -385,6 +433,7 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
     }
     v4l2uvc_close_v4l2(videoIn);
     free(videoIn);
+    freeLut();
 
     return 0;
 }
@@ -414,7 +463,7 @@ static int32_t cam_view_start_stream(int32_t argc, char *argv[])
              g_cam_view_cfg.width,
              g_cam_view_cfg.height,
              g_cam_view_cfg.fps,
-             g_cam_view_cfg.format,
+             g_cam_view_cfg.formatIn,
 			 g_cam_view_cfg.mmapgrab,
              g_cam_view_cfg.avifilename) < 0) {
         printf("Unable to init video device!\n");
@@ -677,8 +726,9 @@ static int32_t cam_view_exit(int32_t argc, char *argv[])
 
 static shell_cmd_tbl_t cam_view_cmd_tbl[] = {
     { "dev", 2, cam_view_set_dev },
-    { "mode", 2, cam_view_set_mode },
     { "size", 2, cam_view_set_size },
+    { "infmt", 2, cam_view_set_input_format },
+    { "outfmt", 2, cam_view_set_output_format },
     { "framerate", 2, cam_view_set_frame_rate },
     { "mmapgrab", 2, cam_view_set_mmapgrab },
     { "setaviname", 2, cam_view_set_aviname },
@@ -700,7 +750,8 @@ static int32_t cam_view_init(void)
     memset(&g_cam_view_cfg, 0, sizeof(cam_view_cfg_data_t));
     g_cam_view_cfg.width = 640;
     g_cam_view_cfg.height = 480;
-    g_cam_view_cfg.format = V4L2_PIX_FMT_MJPEG;
+    g_cam_view_cfg.formatIn = V4L2_PIX_FMT_MJPEG;
+    g_cam_view_cfg.formatOut = V4L2_PIX_FMT_YUYV;
     g_cam_view_cfg.fps = 30.0;
     g_cam_view_cfg.mmapgrab = 1;
     strcpy(g_cam_view_cfg.devname,  CAM_VIEW_DEFAULT_DEVNAME);
@@ -723,7 +774,7 @@ int main(int argc, char *argv[])
         exit (1);
 
 	printf("Camera View %s\n\n", version);
-    shell_init(cam_view_cmd_tbl, SHELL_CONFIG_MAXARGS, SHELL_CONFIG_PROMPT);
+    shell_init(cam_view_cmd_tbl, sizeof(cam_view_cmd_tbl) / sizeof(shell_cmd_tbl_t), SHELL_CONFIG_PROMPT);
 
 	while (!shell_get_exit_signal()) {
         char ch_in = cam_view_getch();

@@ -33,6 +33,7 @@
 #include <time.h>
 #include <limits.h>
 #include "huffman.h"
+#include <assert.h>
 
 #define ISHIFT 11
 
@@ -1208,7 +1209,7 @@ static void utils_get_picture_name (char *picture, const char *name_prefix, int3
     } else {
         tmp_prefix = name_prefix;
     }
-    snprintf (temp, 25 + tmp_len, "%s-%02d:%02d:%04d-%02d:%02d:%02d.%s\0", tmp_prefix,
+    snprintf (temp, 25 + tmp_len, "%s-%02d_%02d_%04d-%02d_%02d_%02d.%s\0", tmp_prefix,
         tdate->tm_mon + 1, tdate->tm_mday, tdate->tm_year + 1900,
         tdate->tm_hour, tdate->tm_min, tdate->tm_sec, myext[fmt]);
 
