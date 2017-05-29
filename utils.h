@@ -43,3 +43,5 @@ int utils_get_picture_mjpg(const char *name_prefix, unsigned char *buf,
         int size);
 int utils_get_picture_yv2(const char *name_prefix, unsigned char *buf,
         int width, int height);
+int utils_get_picture_bmp(const char *name_prefix, unsigned char *buf,
+        int width, int height);

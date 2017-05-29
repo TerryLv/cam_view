@@ -33,6 +33,7 @@
 #include <time.h>
 #include <limits.h>
 #include "huffman.h"
+#include "bmp.h"
 #include <assert.h>
 
 #define ISHIFT 11
@@ -1193,7 +1194,7 @@ int32_t utils_is_huffman(unsigned char *buf)
 static void utils_get_picture_name (char *picture, const char *name_prefix, int32_t fmt)
 {
     char temp[80];
-    char *myext[] = { "pnm", "jpg" };
+    char *myext[] = { "pnm", "jpg", "bmp" };
     int i;
     time_t curdate;
     struct tm *tdate;
@@ -1244,6 +1245,64 @@ int utils_get_picture_mjpg(const char *name_prefix, unsigned char *buf, int32_t 
     if(name)
 	    free(name);
     return 0;		
+}
+
+static int32_t utils_init_bmp_hdr(BITMAPFILE_t *bmp_file, uint32_t file_size, uint32_t img_width, uint32_t img_height, uint32_t img_bits)
+{
+    if (!bmp_file) {
+        return -1;
+    }
+
+    bmp_file->header.bfType = ('B' + ('M'<<8));
+    bmp_file->header.bfSize = file_size;
+    bmp_file->header.bfOffBits = 54;
+
+    bmp_file->info.biSize = 0x28;
+    bmp_file->info.biWidth = img_width;
+    bmp_file->info.biHeight = img_height;
+    bmp_file->info.biPlanes = 1;
+    bmp_file->info.biBitCount = img_bits;
+    bmp_file->info.biCompression = 0;
+    bmp_file->info.biSizeImage = 0;
+    bmp_file->info.biClrUsed = 1 << img_bits;
+    bmp_file->info.biClrImportant = 0;
+    bmp_file->info.biXPelsPerMeter = 2048;
+    bmp_file->info.biYPelsPerMeter = 2048;
+    return 0;
+}
+
+int utils_get_picture_bmp(const char *name_prefix, unsigned char *buf, int32_t width, int32_t height)
+{
+    FILE *foutpict;
+    char *name = NULL;
+    BITMAPFILE_t *bmp_ptr = NULL;
+
+    bmp_ptr = (BITMAPFILE_t *)malloc(sizeof(BITMAPFILE_t));
+    if (NULL == bmp_ptr) {
+        printf(" not enough memory for bmp header \n");
+    }
+    name = calloc(80,1);
+    utils_get_picture_name(name, name_prefix, 2);
+    utils_init_bmp_hdr(bmp_ptr, (sizeof(BITMAPFILE_t) + width * height * 3 * sizeof(char) - 4), width, height, 24);
+    bmp_ptr->data = (unsigned char *)malloc(width * height * 3 * sizeof(char));
+    if (bmp_ptr->data) {
+	    utils_yuv422p_to_rgb24(buf, bmp_ptr->data, width, height);
+    } else {
+	    printf(" no room to take a picture \n");
+        free(bmp_ptr);
+	    return 0;
+    }
+
+    if(name) {
+	    foutpict = fopen(name, "wb");
+	    fwrite(bmp_ptr, sizeof(BITMAPFILE_t) - 4, 1, foutpict);
+	    fwrite(bmp_ptr->data, sizeof (char), width * height * 3, foutpict);
+	    fclose(foutpict);
+	    free(name);
+    }
+    free(bmp_ptr->data);
+    free(bmp_ptr);
+    return 0;
 }
 
 int utils_get_picture_yv2(const char *name_prefix, unsigned char *buf, int32_t width, int32_t height)

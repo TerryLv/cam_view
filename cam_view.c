@@ -53,7 +53,10 @@
 #define INCPANTILT 64 // 1?
 
 static const char version[] = VERSION;
-struct vdIn *videoIn;
+
+#define CAM_VIEW_PIX_OUT_FMT_MJPEG          (0)
+#define CAM_VIEW_PIX_OUT_FMT_YUYV           (1)
+#define CAM_VIEW_PIX_OUT_FMT_BMP            (2)
 
 #define CAM_VIEW_RAW_FRAME_CAPTURE          (1)
 #define CAM_VIEW_RAW_FRAME_STREAM_CAPTURE   (2)
@@ -78,7 +81,8 @@ typedef struct {
     char streamfilename[CAM_VIEW_OUTPUT_FILENAME_MAX_LEN];
 } cam_view_cfg_data_t;
 
-cam_view_cfg_data_t g_cam_view_cfg;
+static cam_view_cfg_data_t g_cam_view_cfg;
+static struct vdIn *videoIn = NULL;
 
 /*====================== Shell Cmd Functions Start =======================*/
 static int32_t cam_view_print_usage(int32_t argc, char *argv[])
@@ -175,6 +179,27 @@ static int32_t cam_view_set_dev(int32_t argc, char *argv[])
         memset(g_cam_view_cfg.devname, 0, CAM_VIEW_DEV_NAME_MAX_LEN);
         strcpy(g_cam_view_cfg.devname, tmp);
     }
+
+    videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
+    if (!videoIn)
+        printf("unable to allocate memory for video\n");
+
+    if (v4l2uvc_init_videoIn
+			(videoIn,
+             (char *)g_cam_view_cfg.devname,
+             g_cam_view_cfg.width,
+             g_cam_view_cfg.height,
+             g_cam_view_cfg.fps,
+             g_cam_view_cfg.formatIn,
+			 g_cam_view_cfg.mmapgrab,
+             g_cam_view_cfg.avifilename) < 0) {
+        free(videoIn);
+        printf("Unable to init video device!\n");
+		return (1);
+    }
+
+    initLut();
+
     return 0;
 }
 
@@ -279,7 +304,7 @@ static int32_t cam_view_set_size(int32_t argc, char *argv[])
 static int32_t cam_view_set_output_format(int32_t argc, char *argv[])
 {
     const char *tmp = NULL;
-    int32_t format = V4L2_PIX_FMT_YUYV;
+    int32_t format = CAM_VIEW_PIX_OUT_FMT_BMP;
 
     if (argc > 2) {
 	    printf("too many arguments, aborting.\n");
@@ -287,23 +312,32 @@ static int32_t cam_view_set_output_format(int32_t argc, char *argv[])
 	}
 
     if (1 == argc) {
-        if (V4L2_PIX_FMT_YUYV == g_cam_view_cfg.formatOut)
-            printf("current output format is yuv/YUYV.\n");
-        else if (V4L2_PIX_FMT_MJPEG == g_cam_view_cfg.formatOut)
-            printf("current output format is jpg/MJPG.\n");
-        else {
-            printf("unrecognized format: %d\n", g_cam_view_cfg.formatOut);
-            return 1;
+        switch (g_cam_view_cfg.formatOut) {
+        case CAM_VIEW_PIX_OUT_FMT_MJPEG:
+            printf("Current output format is jpg/MJPG.\n");
+            break;
+        case CAM_VIEW_PIX_OUT_FMT_YUYV:
+            printf("Current output format is yuv/YUYV.\n");
+            break;
+        case CAM_VIEW_PIX_OUT_FMT_BMP:
+            printf("Current output format is BMP.\n");
+            break;
+        default:
+            printf("Unrecognized format: %d\n", g_cam_view_cfg.formatOut);
+            break;
         }
     } else {
 	    tmp = argv[1];
 
 	    if (strcasecmp(tmp, "yuv") == 0 || strcasecmp(tmp, "YUYV") == 0) {
             printf("Output format is set to yuv/YUYV.\n");
-	        format = V4L2_PIX_FMT_YUYV;
+	        format = CAM_VIEW_PIX_OUT_FMT_YUYV;
         } else if (strcasecmp(tmp, "jpg") == 0 || strcasecmp(tmp, "MJPG") == 0) {
             printf("Output format is set to jpg/MJPG.\n");
-		    format = V4L2_PIX_FMT_MJPEG;
+		    format = CAM_VIEW_PIX_OUT_FMT_MJPEG;
+        } else if (strcasecmp(tmp, "bmp") == 0 || strcasecmp(tmp, "BMP") == 0) {
+            printf("Output format is set to bmp/BMP.\n");
+		    format = CAM_VIEW_PIX_OUT_FMT_BMP;
         } else {
 		    printf("Unknown format specified. Aborting.\n");
 	        return (1);
@@ -412,13 +446,17 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
         time_dur = (end_time.tv_sec - ref_time.tv_sec) * 1000000 + (end_time.tv_usec - ref_time.tv_usec);
         if (time_dur > interval * 1000) {
             switch (g_cam_view_cfg.formatOut) {
-            case V4L2_PIX_FMT_YUYV:
+            case CAM_VIEW_PIX_OUT_FMT_YUYV:
                 utils_get_picture_yv2(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->framebuffer,
                         videoIn->width, videoIn->height);
                 break;
-            case V4L2_PIX_FMT_MJPEG:
+            case CAM_VIEW_PIX_OUT_FMT_MJPEG:
                 utils_get_picture_mjpg(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->tmpbuffer,
                         videoIn->tmpbuf_byteused);
+                break;
+            case CAM_VIEW_PIX_OUT_FMT_BMP:
+                utils_get_picture_bmp(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->framebuffer,
+                        videoIn->width, videoIn->height);
                 break;
             default:
                 printf("invalid video format\n");
@@ -431,6 +469,7 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
         if (0 == interval)
             videoIn->signalquit = 0;
     }
+
     v4l2uvc_close_v4l2(videoIn);
     free(videoIn);
     freeLut();
@@ -751,7 +790,7 @@ static int32_t cam_view_init(void)
     g_cam_view_cfg.width = 640;
     g_cam_view_cfg.height = 480;
     g_cam_view_cfg.formatIn = V4L2_PIX_FMT_MJPEG;
-    g_cam_view_cfg.formatOut = V4L2_PIX_FMT_YUYV;
+    g_cam_view_cfg.formatOut = CAM_VIEW_PIX_OUT_FMT_BMP;
     g_cam_view_cfg.fps = 30.0;
     g_cam_view_cfg.mmapgrab = 1;
     strcpy(g_cam_view_cfg.devname,  CAM_VIEW_DEFAULT_DEVNAME);
