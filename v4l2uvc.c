@@ -74,7 +74,7 @@ int v4l2uvc_check_videoIn(struct vdIn *vd, char *device)
 	printf("  Device path:  %s\n", vd->videodevice);
 	if ((vd->fd = open(vd->videodevice, O_RDWR)) == -1) {
 		perror("ERROR opening V4L interface");
-		exit(1);
+		return (-1);
 	}
 	memset(&vd->cap, 0, sizeof(struct v4l2_capability));
 	ret = ioctl(vd->fd, VIDIOC_QUERYCAP, &vd->cap);
@@ -344,7 +344,7 @@ static int v4l2uvc_init_v4l2(struct vdIn *vd)
 
 	if ((vd->fd = open(vd->videodevice, O_RDWR)) == -1) {
 		perror("ERROR opening V4L interface");
-		exit(1);
+		return (-1);
 	}
 	memset(&vd->cap, 0, sizeof(struct v4l2_capability));
 	ret = ioctl(vd->fd, VIDIOC_QUERYCAP, &vd->cap);

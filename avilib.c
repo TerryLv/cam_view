@@ -320,7 +320,7 @@ void AVI_set_audio(avi_t *AVI, int channels, long rate, int bits, int format, lo
 
    if(AVI->anum > AVI_MAX_TRACKS) {
      fprintf(stderr, "error - only %d audio tracks supported\n", AVI_MAX_TRACKS);
-     exit(1);
+     return (1);
    }
 
    AVI->track[AVI->aptr].a_chans = channels;
@@ -551,7 +551,7 @@ int avi_update_header(avi_t *AVI)
    if(njunk<=0)
      {
        fprintf(stderr,"AVI_close_output_file: # of header bytes too small\n");
-       exit(1);
+       return (1);
      }
    
    OUT4CC ("JUNK");
@@ -863,7 +863,7 @@ static int avi_close_output_file(avi_t *AVI)
    if(njunk<=0)
    {
       fprintf(stderr,"AVI_close_output_file: # of header bytes too small\n");
-      exit(1);
+      return (1);
    }
 
    OUT4CC ("JUNK");

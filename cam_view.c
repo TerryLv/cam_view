@@ -82,7 +82,7 @@ typedef struct {
 } cam_view_cfg_data_t;
 
 static cam_view_cfg_data_t g_cam_view_cfg;
-static struct vdIn *videoIn = NULL;
+static struct vdIn *g_videoIn = NULL;
 
 /*====================== Shell Cmd Functions Start =======================*/
 static int32_t cam_view_print_usage(int32_t argc, char *argv[])
@@ -90,7 +90,7 @@ static int32_t cam_view_print_usage(int32_t argc, char *argv[])
     printf("usage:\n");
     printf("help\n"
            "  print this message\n");
-    printf("dev <dev>\n"
+    printf("initdev <dev>\n"
            "  /dev/videoX       use videoX device\n");
     printf("-g   use read method for grab instead mmap\n");
     printf("infmt <YUYV|yuv|MJPG|jpg>\n"
@@ -130,8 +130,8 @@ static int32_t cam_view_print_usage(int32_t argc, char *argv[])
 static void cam_view_sigcatch (int32_t sig)
 {
     fprintf(stderr, "Exiting...\n");
-    if (videoIn)
-        videoIn->signalquit = 0;
+    if (g_videoIn)
+        g_videoIn->signalquit = 0;
 }
 
 int cam_view_getch(void)
@@ -157,7 +157,7 @@ int cam_view_getch(void)
     return ch;
 }
 
-static int32_t cam_view_set_dev(int32_t argc, char *argv[])
+static int32_t cam_view_init_dev(int32_t argc, char *argv[])
 {
     int32_t dev_name_len = 0;
     const char *tmp = NULL;
@@ -167,9 +167,7 @@ static int32_t cam_view_set_dev(int32_t argc, char *argv[])
 		return (1);
 	}
 
-    if (1 == argc) {
-        printf("current device: %s\n", g_cam_view_cfg.devname);
-    } else {
+    if (2 == argc) {
         tmp = argv[1];
         dev_name_len = strlen(tmp);
         if (dev_name_len > CAM_VIEW_DEV_NAME_MAX_LEN) {
@@ -180,12 +178,28 @@ static int32_t cam_view_set_dev(int32_t argc, char *argv[])
         strcpy(g_cam_view_cfg.devname, tmp);
     }
 
-    videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
-    if (!videoIn)
+    printf("Device Info:\n");
+    printf("Device: %s\n", g_cam_view_cfg.devname);
+    printf("Size: %dx%d\n", g_cam_view_cfg.width, g_cam_view_cfg.height);
+    printf("FPS: %d\n", g_cam_view_cfg.fps);
+    printf("Input format: ");
+    switch (g_cam_view_cfg.formatIn) {
+    case V4L2_PIX_FMT_YUYV:
+        printf("YUYV\n");
+        break;
+    case V4L2_PIX_FMT_MJPEG:
+        printf("MJPEG\n");
+        break;
+    default:
+        printf("Unknown format\n");
+    }
+
+    g_videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
+    if (!g_videoIn)
         printf("unable to allocate memory for video\n");
 
     if (v4l2uvc_init_videoIn
-			(videoIn,
+			(g_videoIn,
              (char *)g_cam_view_cfg.devname,
              g_cam_view_cfg.width,
              g_cam_view_cfg.height,
@@ -193,7 +207,7 @@ static int32_t cam_view_set_dev(int32_t argc, char *argv[])
              g_cam_view_cfg.formatIn,
 			 g_cam_view_cfg.mmapgrab,
              g_cam_view_cfg.avifilename) < 0) {
-        free(videoIn);
+        free(g_videoIn);
         printf("Unable to init video device!\n");
 		return (1);
     }
@@ -382,7 +396,6 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
 {
     const char *tmp= NULL;
     struct timeval ref_time, end_time;
-    struct vdIn *videoIn;
     int32_t interval = 0;
     int32_t time_dur = 0;
 
@@ -403,42 +416,22 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
         }
     }
 
-    videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
-    if (!videoIn)
-        printf("unable to allocate memory for video\n");
-
-    if (v4l2uvc_init_videoIn
-			(videoIn,
-             (char *)g_cam_view_cfg.devname,
-             g_cam_view_cfg.width,
-             g_cam_view_cfg.height,
-             g_cam_view_cfg.fps,
-             g_cam_view_cfg.formatIn,
-			 g_cam_view_cfg.mmapgrab,
-             g_cam_view_cfg.avifilename) < 0) {
-        free(videoIn);
-        printf("Unable to init video device!\n");
-		return (1);
-    }
-
-    initLut();
-
     printf("Capturing frames ... press 'q' or 'Q' to stop\n");
     gettimeofday(&ref_time, NULL);
-    while (videoIn->signalquit) {
+    while (g_videoIn->signalquit) {
         if (1 == argc)
         {
             /* Capture one frame, so quit after capture */
-            videoIn->signalquit = 0;
+            g_videoIn->signalquit = 0;
         }
         else if ('q' == cam_view_getch() || 'Q' == cam_view_getch())
         {
-            videoIn->signalquit = 0;
+            g_videoIn->signalquit = 0;
         }
-        if (v4l2uvc_capture(videoIn) < 0) {
+        if (v4l2uvc_capture(g_videoIn) < 0) {
             printf("error capturing frame");
-            v4l2uvc_close_v4l2(videoIn);
-            free(videoIn);
+            v4l2uvc_close_v4l2(g_videoIn);
+            free(g_videoIn);
             return 1;
         }
 
@@ -447,32 +440,28 @@ static int32_t cam_view_start_capture(int32_t argc, char *argv[])
         if (time_dur > interval * 1000) {
             switch (g_cam_view_cfg.formatOut) {
             case CAM_VIEW_PIX_OUT_FMT_YUYV:
-                utils_get_picture_yv2(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->framebuffer,
-                        videoIn->width, videoIn->height);
+                utils_get_picture_yv2(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, g_videoIn->framebuffer,
+                        g_videoIn->width, g_videoIn->height);
                 break;
             case CAM_VIEW_PIX_OUT_FMT_MJPEG:
-                utils_get_picture_mjpg(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->tmpbuffer,
-                        videoIn->tmpbuf_byteused);
+                utils_get_picture_mjpg(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, g_videoIn->tmpbuffer,
+                        g_videoIn->tmpbuf_byteused);
                 break;
             case CAM_VIEW_PIX_OUT_FMT_BMP:
-                utils_get_picture_bmp(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, videoIn->framebuffer,
-                        videoIn->width, videoIn->height);
+                utils_get_picture_bmp(CAM_VIEW_DEFAULT_CAPTURE_FILE_PREFIX, g_videoIn->framebuffer,
+                        g_videoIn->width, g_videoIn->height);
                 break;
             default:
                 printf("invalid video format\n");
-                videoIn->signalquit = 0;
+                g_videoIn->signalquit = 0;
             }
         }
 
         gettimeofday(&ref_time, NULL);
 
         if (0 == interval)
-            videoIn->signalquit = 0;
+            g_videoIn->signalquit = 0;
     }
-
-    v4l2uvc_close_v4l2(videoIn);
-    free(videoIn);
-    freeLut();
 
     return 0;
 }
@@ -486,18 +475,18 @@ static int32_t cam_view_start_stream(int32_t argc, char *argv[])
 		return (1);
 	}
 
-    videoIn->captureFile = fopen(g_cam_view_cfg.streamfilename, "wb");
-	if(videoIn->captureFile == NULL)
+    g_videoIn->captureFile = fopen(g_cam_view_cfg.streamfilename, "wb");
+	if(g_videoIn->captureFile == NULL)
 		perror("Unable to open file for raw stream capturing");
 	else
 		printf("Starting raw stream capturing to %s...\n", g_cam_view_cfg.streamfilename);
 
-    videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
-    if (!videoIn)
+    g_videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
+    if (!g_videoIn)
         printf("unable to allocate memory for video\n");
 
     if (v4l2uvc_init_videoIn
-			(videoIn,
+			(g_videoIn,
              (char *)g_cam_view_cfg.devname,
              g_cam_view_cfg.width,
              g_cam_view_cfg.height,
@@ -509,7 +498,7 @@ static int32_t cam_view_start_stream(int32_t argc, char *argv[])
 		return (1);
     }
 
-    videoIn->captureFile = NULL;
+    g_videoIn->captureFile = NULL;
 
     return 0;
 }
@@ -551,7 +540,7 @@ static int32_t cam_view_start_record(int32_t argc, char *argv[])
 {
     const char *tmp= NULL;
     int32_t    rtn = 0;
-    struct vdIn *videoIn = NULL;
+    struct vdIn *g_videoIn = NULL;
 #if 0
     pthread_t  record_thread;
     void *thread_result;
@@ -563,12 +552,12 @@ static int32_t cam_view_start_record(int32_t argc, char *argv[])
 	}
 
 #if 0
-    videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
-    if (!videoIn)
+    g_videoIn = (struct vdIn *)calloc(1, sizeof(struct vdIn));
+    if (!g_videoIn)
         printf("unable to allocate memory for video\n");
 
-    if (v4l2uvc_init_videoIn
-			(videoIn,
+    if (v4l2uvc_init_g_videoIn
+			(g_videoIn,
              (char *)g_cam_view_cfg.devname,
              g_cam_view_cfg.width,
              g_cam_view_cfg.height,
@@ -580,25 +569,25 @@ static int32_t cam_view_start_record(int32_t argc, char *argv[])
 		return (1);
     }
 
-    if (!videoIn->isstreaming) {
-        if (video_enable(videoIn)) {
+    if (!g_videoIn->isstreaming) {
+        if (video_enable(g_videoIn)) {
             printf("can't enable video\n");
             return 1;
         }
     }
 
-    videoIn->avifile = AVI_open_output_file(videoIn->avifilename);
-    if (NULL == videoIn->avifile) {
-        printf("error opening avifile %s\n", videoIn->avifile);
+    g_videoIn->avifile = AVI_open_output_file(g_videoIn->avifilename);
+    if (NULL == g_videoIn->avifile) {
+        printf("error opening avifile %s\n", g_videoIn->avifile);
         return 1;
     }
 
-    AVI_set_video(videoIn->avifile, videoIn->width, videoIn->height, videoIn->fps,
+    AVI_set_video(g_videoIn->avifile, g_videoIn->width, g_videoIn->height, g_videoIn->fps,
             CAM_VIEW_DEFAULT_RECORD_FORMAT);
-    printf("start recording to %s, press 'q' or 'Q' to stop\n", videoIn->avifilename);
+    printf("start recording to %s, press 'q' or 'Q' to stop\n", g_videoIn->avifilename);
 
 #if 0
-    rtn = pthread_create(&record_thread, NULL, cam_view_record_thread, (void *)videoIn);
+    rtn = pthread_create(&record_thread, NULL, cam_view_record_thread, (void *)g_videoIn);
     if (rtn != 0)
     {
         perror("Thread creation failed!");
@@ -610,10 +599,10 @@ static int32_t cam_view_start_record(int32_t argc, char *argv[])
     {
         if (('q' == cam_view_getch(stdin)) || 'Q' == cam_view_getch(stdin))
             break;
-        memset(&videoIn->buf, 0, sizeof(struct v4l2_buffer));
-        videoIn->buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        videoIn->buf.memory = V4L2_MEMORY_MMAP;
-        ret = ioctl(videoIn->fd, VIDIOC_DQBUF, &videoIn->buf);
+        memset(&g_videoIn->buf, 0, sizeof(struct v4l2_buffer));
+        g_videoIn->buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        g_videoIn->buf.memory = V4L2_MEMORY_MMAP;
+        ret = ioctl(g_videoIn->fd, VIDIOC_DQBUF, &g_videoIn->buf);
         if (ret < 0)
         {
             printf("Unable to dequeue buffer");
@@ -633,10 +622,10 @@ static int32_t cam_view_start_record(int32_t argc, char *argv[])
             exit(1);
         }
     }
-    AVI_close(videoIn->avifile);
-    videoIn->avifile = NULL;
-    v4l2uvc_close_v4l2(videoIn);
-    free(videoIn);
+    AVI_close(g_videoIn->avifile);
+    g_videoIn->avifile = NULL;
+    v4l2uvc_close_v4l2(g_videoIn);
+    free(g_videoIn);
 #endif
 
     return 0;
@@ -719,7 +708,7 @@ static int32_t cam_view_list_video_format(int32_t argc, char *argv[])
 		return (1);
 	}
 
-	v4l2uvc_check_videoIn(videoIn, (char *)g_cam_view_cfg.devname);
+	v4l2uvc_check_videoIn(g_videoIn, (char *)g_cam_view_cfg.devname);
 
     return 0;
 }
@@ -731,7 +720,7 @@ static int32_t cam_view_list_video_control(int32_t argc, char *argv[])
 		return (1);
 	}
 
-    v4l2uvc_enum_controls(videoIn->fd);
+    v4l2uvc_enum_controls(g_videoIn->fd);
 
     return 0;
 }
@@ -743,7 +732,7 @@ static int32_t cam_view_list_config_file(int32_t argc, char *argv[])
 		return (1);
 	}
 
-    //v4l2uvc_load_controls(videoIn->fd);
+    //v4l2uvc_load_controls(g_videoIn->fd);
 
     return 0;
 }
@@ -755,16 +744,17 @@ static int32_t cam_view_exit(int32_t argc, char *argv[])
 		return (1);
 	}
  
-    if (videoIn) {
-        v4l2uvc_close_v4l2(videoIn);
-        free(videoIn);
+    if (g_videoIn) {
+        v4l2uvc_close_v4l2(g_videoIn);
+        free(g_videoIn);
     }
+    freeLut();
 
     shell_signal_exit();
 }
 
 static shell_cmd_tbl_t cam_view_cmd_tbl[] = {
-    { "dev", 2, cam_view_set_dev },
+    { "initdev", 2, cam_view_init_dev },
     { "size", 2, cam_view_set_size },
     { "infmt", 2, cam_view_set_input_format },
     { "outfmt", 2, cam_view_set_output_format },
@@ -787,8 +777,8 @@ static shell_cmd_tbl_t cam_view_cmd_tbl[] = {
 static int32_t cam_view_init(void)
 {
     memset(&g_cam_view_cfg, 0, sizeof(cam_view_cfg_data_t));
-    g_cam_view_cfg.width = 640;
-    g_cam_view_cfg.height = 480;
+    g_cam_view_cfg.width = 1920;
+    g_cam_view_cfg.height = 1080;
     g_cam_view_cfg.formatIn = V4L2_PIX_FMT_MJPEG;
     g_cam_view_cfg.formatOut = CAM_VIEW_PIX_OUT_FMT_BMP;
     g_cam_view_cfg.fps = 30.0;
